@@ -1,0 +1,22 @@
+{
+  "name": "ai-agent-money-tracker",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": ["telegram", "bot", "money-tracker", "supabase", "gemini"],
+  "author": "Erico",
+  "license": "ISC",
+  "description": "SaaS Telegram Bot Money Tracker with AI categorization",
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@supabase/supabase-js": "^2.103.0",
+    "dotenv": "^17.4.1",
+    "exceljs": "^4.4.0",
+    "express": "^5.2.1",
+    "telegraf": "^4.16.3"
+  }
+}
