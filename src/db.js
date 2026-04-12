@@ -53,6 +53,30 @@ async function setBudget(telegramId, amount) {
   return data;
 }
 
+/**
+ * RESET: Delete all transactions and category cache for a user.
+ */
+async function resetUserData(telegramId) {
+  // 1. Delete transactions
+  const { error: txError } = await supabase
+    .from('transactions')
+    .delete()
+    .eq('user_id', telegramId);
+
+  if (txError) throw txError;
+
+  // 2. Clear category cache (so they can re-teach the AI)
+  const { error: cacheError } = await supabase
+    .from('category_cache')
+    .delete()
+    .eq('user_id', telegramId);
+
+  if (cacheError) throw cacheError;
+
+  // Note: We don't delete categories (profiles.categories) or profiles
+  // We want to keep their custom categories, just wipe the history.
+}
+
 // ─── Category Operations ──────────────────────────────────────────
 
 const DEFAULT_CATEGORIES = [
@@ -314,6 +338,7 @@ module.exports = {
   upsertProfile,
   getProfile,
   setBudget,
+  resetUserData,
   seedDefaultCategories,
   addCategory,
   listCategories,

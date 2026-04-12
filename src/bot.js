@@ -273,6 +273,54 @@ bot.command('undo', async (ctx) => {
   }
 });
 
+// ─── /reset ──────────────────────────────────────────────────────
+bot.command('reset', async (ctx) => {
+  try {
+    const telegramId = ctx.from.id;
+    const profile = await db.getProfile(telegramId);
+    if (!profile) return ctx.reply('⚠️ Silakan /start terlebih dahulu.');
+
+    return ctx.reply(
+      `⚠️ *Peringatan Konfirmasi*\n\n` +
+      `Apakah kamu yakin ingin menghapus *SEMUA* riwayat transaksi dan memori kategori bot?\n\n` +
+      `❌ Tindakan ini tidak bisa dibatalkan.`,
+      {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('🔥 Ya, Reset Semuanya!', 'confirm_reset')],
+          [Markup.button.callback('✅ Batalkan', 'cancel_reset')]
+        ])
+      }
+    );
+  } catch (error) {
+    console.error('❌ /reset error:', error);
+    return ctx.reply('⚠️ Gagal memproses permintaan reset.');
+  }
+});
+
+bot.action('confirm_reset', async (ctx) => {
+  try {
+    const telegramId = ctx.from.id;
+    await db.resetUserData(telegramId);
+    await ctx.editMessageText('✅ *Sukses!* Seluruh data transaksimu telah dihapus. Mari mulai lembaran baru! 🚩', {
+      parse_mode: 'Markdown'
+    });
+    return ctx.answerCbQuery('Data berhasil di-reset');
+  } catch (error) {
+    console.error('❌ confirm_reset action error:', error);
+    return ctx.answerCbQuery('⚠️ Gagal melakukan reset data.');
+  }
+});
+
+bot.action('cancel_reset', async (ctx) => {
+  try {
+    await ctx.editMessageText('👍 *Bagus!* Data kamu tetap aman.', { parse_mode: 'Markdown' });
+    return ctx.answerCbQuery('Reset dibatalkan');
+  } catch (error) {
+    console.error('❌ cancel_reset action error:', error);
+  }
+});
+
 // ─── /help ───────────────────────────────────────────────────────
 bot.help((ctx) => {
   return ctx.reply(
@@ -286,7 +334,8 @@ bot.help((ctx) => {
     `• /listcategory — Daftar kategori\n` +
     `• /deletecategory — Hapus kategori\n` +
     `• /setbudget — Atur target budget\n` +
-    `• /deletebudget — Hapus target budget`,
+    `• /deletebudget — Hapus target budget\n` +
+    `• /reset — Hapus semua data transaksi`,
     { parse_mode: 'Markdown' }
   );
 });
