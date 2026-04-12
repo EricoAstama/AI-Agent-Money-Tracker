@@ -5,12 +5,13 @@ const express = require('express');
 const fs = require('fs');
 
 const db = require('./src/db');
-const { parseExpense } = require('./src/parser');
+const ai = require('./src/ai');
+const { parseExpense, parseAmount } = require('./src/parser');
 const { generateReport, cleanupReport } = require('./src/report');
 const { Markup } = require('telegraf');
 
 // ─── Validate environment ────────────────────────────────────────
-const requiredEnvVars = ['BOT_TOKEN', 'SUPABASE_URL', 'SUPABASE_SERVICE_KEY'];
+const requiredEnvVars = ['BOT_TOKEN', 'SUPABASE_URL', 'SUPABASE_SERVICE_KEY', 'GROQ_API_KEY'];
 for (const envVar of requiredEnvVars) {
   if (!process.env[envVar]) {
     console.error(`❌ Missing environment variable: ${envVar}`);
@@ -54,19 +55,20 @@ bot.start(async (ctx) => {
     await db.upsertProfile(telegramId, firstName);
     await db.seedDefaultCategories(telegramId);
 
-    const categoryList = db.DEFAULT_CATEGORIES.map((c, i) => `  ${i + 1}\\. ${c}`).join('\n');
+    const categoryList = db.DEFAULT_CATEGORIES.map((c, i) => `${i + 1}. ${c}`).join('\n');
 
     return ctx.reply(
-      `🎉 Halo, *${firstName}*\\! Selamat datang di Money Tracker Bot\\!\n\n` +
-      `✅ Akun berhasil dibuat\\.\n\n` +
-      `📂 Kategori default\\-mu:\n${categoryList}\n\n` +
+      `🎉 Halo, *${firstName}*! Selamat datang di Money Tracker Bot!\n\n` +
+      `✅ Akun berhasil dibuat.\n\n` +
+      `📂 Kategori default-mu:\n${categoryList}\n\n` +
       `💡 *Cara pakai:*\n` +
       `• Kirim pengeluaran: _kopi susu 25k_\n` +
-      `• /addcategory \\[Nama\\] — Tambah kategori\n` +
+      `• /addcategory [Nama] — Tambah kategori\n` +
       `• /listcategory — Lihat semua kategori\n` +
-      `• /setbudget \\[Angka\\] — Atur batas budget\n` +
-      `• /report — Laporan bulanan \\(Excel\\)`,
-      { parse_mode: 'MarkdownV2' }
+      `• /setbudget [Angka] — Atur batas budget\n` +
+      `• /deletebudget — Hapus batas budget\n` +
+      `• /report — Laporan bulanan (Excel)`,
+      { parse_mode: 'Markdown' }
     );
   } catch (error) {
     console.error('❌ /start error:', error);
@@ -129,10 +131,10 @@ bot.command('setbudget', async (ctx) => {
     if (!profile) return ctx.reply('⚠️ Silakan /start terlebih dahulu.');
 
     const args = ctx.message.text.replace('/setbudget', '').trim();
-    const amount = parseFloat(args.replace(/[.,]/g, ''));
+    const amount = parseAmount(args);
 
     if (!args || isNaN(amount) || amount <= 0) {
-      return ctx.reply('❌ Format: /setbudget [Angka]\nContoh: /setbudget 2000000');
+      return ctx.reply('❌ Format: /setbudget [Angka]\nContoh:\n• /setbudget 2000000\n• /setbudget 2jt\n• /setbudget 1.5jt');
     }
 
     await db.setBudget(telegramId, amount);
@@ -142,6 +144,75 @@ bot.command('setbudget', async (ctx) => {
   } catch (error) {
     console.error('❌ /setbudget error:', error);
     return ctx.reply('⚠️ Gagal mengatur budget. Silakan coba lagi.');
+  }
+});
+
+// ─── /deletecategory ─────────────────────────────────────────────
+bot.command('deletecategory', async (ctx) => {
+  try {
+    const telegramId = ctx.from.id;
+    const profile = await db.getProfile(telegramId);
+    if (!profile) return ctx.reply('⚠️ Silakan /start terlebih dahulu.');
+
+    const args = ctx.message.text.replace('/deletecategory', '').trim();
+    
+    // If name is provided directly
+    if (args) {
+      await db.deleteCategory(telegramId, args);
+      return ctx.reply(`✅ Kategori *"${args}"* berhasil dihapus.`, { parse_mode: 'Markdown' });
+    }
+
+    // Otherwise, show interactive buttons
+    const categories = await db.listCategories(telegramId);
+    if (categories.length === 0) {
+      return ctx.reply('📂 Kamu tidak punya kategori untuk dihapus.');
+    }
+
+    const buttons = categories.map((cat) => {
+      // Limit category name for callback data safety
+      return [Markup.button.callback(`🗑 ${cat}`, `del_cat:${cat.substring(0, 30)}`)];
+    });
+
+    return ctx.reply(
+      '📂 *Pilih kategori yang ingin dihapus:*\n\n' +
+      '_Catatan: Cache terkait kategori ini juga akan dibersihkan._',
+      {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard(buttons)
+      }
+    );
+  } catch (error) {
+    console.error('❌ /deletecategory error:', error);
+    return ctx.reply('⚠️ Gagal memproses penghapusan kategori.');
+  }
+});
+
+bot.action(/^del_cat:(.+)$/, async (ctx) => {
+  try {
+    const telegramId = ctx.from.id;
+    const categoryName = ctx.match[1];
+
+    await db.deleteCategory(telegramId, categoryName);
+    await ctx.editMessageText(`✅ Kategori *"${categoryName}"* telah dihapus!`, { parse_mode: 'Markdown' });
+    return ctx.answerCbQuery(`Kategori ${categoryName} dihapus`);
+  } catch (error) {
+    console.error('❌ del_cat action error:', error);
+    return ctx.answerCbQuery('⚠️ Gagal menghapus kategori.');
+  }
+});
+
+// ─── /deletebudget ───────────────────────────────────────────────
+bot.command('deletebudget', async (ctx) => {
+  try {
+    const telegramId = ctx.from.id;
+    const profile = await db.getProfile(telegramId);
+    if (!profile) return ctx.reply('⚠️ Silakan /start terlebih dahulu.');
+
+    await db.setBudget(telegramId, null);
+    return ctx.reply(`✅ Budget bulanan berhasil diapus, ${profile.first_name}! Bot tidak akan menghitung sisa budget lagi.`);
+  } catch (error) {
+    console.error('❌ /deletebudget error:', error);
+    return ctx.reply('⚠️ Gagal menghapus budget.');
   }
 });
 
@@ -258,9 +329,11 @@ bot.help((ctx) => {
     `• /report — Download laporan Excel\n` +
     `• /undo — Hapus transaksi terakhir\n` +
     `• /reset — Hapus semua data bulan ini\n` +
-    `• /listcategory — Lihat daftar kategori\n` +
-    `• /addcategory — Tambah kategori baru\n` +
-    `• /setbudget — Atur target budget`,
+    `• /listcategory — Lihat semua kategori\n` +
+    `• /addcategory [Nama] — Tambah kategori baru\n` +
+    `• /deletecategory — Hapus kategori\n` +
+    `• /setbudget — Atur target budget\n` +
+    `• /deletebudget — Hapus target budget`,
     { parse_mode: 'Markdown' }
   );
 });
@@ -275,11 +348,15 @@ bot.command('undo', async (ctx) => {
       return ctx.reply('📭 Tidak ada transaksi yang bisa dihapus.');
     }
 
+    // NEW: Unlearn the keyword so it can be re-categorized correctly
+    await db.unlearnKeyword(telegramId, deleted.item);
+
     return ctx.reply(
-      `🗑 *Transaksi Dihapus!*\n\n` +
+      `🗑 *Transaksi Dihapus & "Unlearned"!*\n\n` +
       `📝 ${deleted.item}\n` +
       `💰 ${formatRupiah(deleted.amount)}\n` +
-      `📂 ${deleted.category}`,
+      `📂 ${deleted.category}\n\n` +
+      `💡 _Sekarang bot sudah lupa kategori item ini. Silakan input ulang jika ingin mengganti kategorinya._`,
       { parse_mode: 'Markdown' }
     );
   } catch (error) {
@@ -391,8 +468,27 @@ bot.on('text', async (ctx) => {
       return ctx.reply(buildReceipt(profile, item, amount, category, monthlyTotal), { parse_mode: 'Markdown' });
     }
 
-    // Cache MISS: Ask user with buttons
-    console.log(`🔍 Cache MISS: "${item}" → asking user...`);
+    // Cache MISS: Step 2 — Try AI (Groq)
+    console.log(`🔍 Cache MISS: "${item}" → asking Groq AI...`);
+    category = await ai.classifyCategory(item, categories);
+
+    if (category) {
+      console.log(`🤖 AI HIT: "${item}" → ${category}`);
+
+      // Save to transaction + cache (Learning)
+      await db.addTransaction(telegramId, item, amount, category);
+      await db.setCachedCategory(telegramId, item, category);
+
+      const monthlyTotal = await db.getMonthlyTotal(telegramId);
+      return ctx.reply(
+        `🤖 _AI Categorization: ${category}_\n\n` + 
+        buildReceipt(profile, item, amount, category, monthlyTotal), 
+        { parse_mode: 'Markdown' }
+      );
+    }
+
+    // Step 3 — Manual Fallback (Buttons)
+    console.log(`⚠️ AI UNSURE: "${item}" → showing buttons...`);
     
     // Telegram callback data limit: 64 bytes.
     // Format: cat:[index]:[amount]:[item_truncated]
