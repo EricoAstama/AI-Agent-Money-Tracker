@@ -17,7 +17,7 @@ SaaS Telegram Bot untuk mencatat pengeluaran harian dengan AI-powered categoriza
 |----------|-----------|
 | Bot Framework | Telegraf |
 | Database | Supabase (PostgreSQL) |
-| AI Engine | Google Gemini 1.5 Flash |
+| AI Engine | Google Gemini 2.0 Flash |
 | Report | ExcelJS |
 | Server | Express.js |
 
