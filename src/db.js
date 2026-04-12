@@ -138,6 +138,19 @@ async function setCachedCategory(telegramId, keyword, category) {
   if (error) throw error;
 }
 
+/**
+ * Get all cached keywords for a user (for smart matching).
+ */
+async function listAllCache(telegramId) {
+  const { data, error } = await supabase
+    .from('category_cache')
+    .select('keyword, category')
+    .eq('user_id', telegramId);
+
+  if (error) throw error;
+  return data || [];
+}
+
 // ─── Transaction Operations ───────────────────────────────────────
 
 /**
@@ -213,6 +226,51 @@ async function getDailyTransactions(telegramId) {
   return data;
 }
 
+/**
+ * Delete the most recent transaction for a user.
+ */
+async function deleteLastTransaction(telegramId) {
+  // Find the last ID
+  const { data: last, error: findError } = await supabase
+    .from('transactions')
+    .select('id, item, amount, category')
+    .eq('user_id', telegramId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single();
+
+  if (findError) {
+    if (findError.code === 'PGRST116') return null;
+    throw findError;
+  }
+
+  // Delete it
+  const { error: deleteError } = await supabase
+    .from('transactions')
+    .delete()
+    .eq('id', last.id);
+
+  if (deleteError) throw deleteError;
+  return last;
+}
+
+/**
+ * Reset all transactions for the current month.
+ */
+async function resetMonthlyTransactions(telegramId) {
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+
+  const { error } = await supabase
+    .from('transactions')
+    .delete()
+    .eq('user_id', telegramId)
+    .gte('created_at', startOfMonth);
+
+  if (error) throw error;
+  return true;
+}
+
 module.exports = {
   supabase,
   upsertProfile,
@@ -223,9 +281,12 @@ module.exports = {
   listCategories,
   getCachedCategory,
   setCachedCategory,
+  listAllCache,
   addTransaction,
   getMonthlyTotal,
   getMonthlyTransactions,
   getDailyTransactions,
+  deleteLastTransaction,
+  resetMonthlyTransactions,
   DEFAULT_CATEGORIES,
 };

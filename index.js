@@ -5,12 +5,12 @@ const express = require('express');
 const fs = require('fs');
 
 const db = require('./src/db');
-const ai = require('./src/ai');
 const { parseExpense } = require('./src/parser');
 const { generateReport, cleanupReport } = require('./src/report');
+const { Markup } = require('telegraf');
 
 // ─── Validate environment ────────────────────────────────────────
-const requiredEnvVars = ['BOT_TOKEN', 'SUPABASE_URL', 'SUPABASE_SERVICE_KEY', 'GEMINI_API_KEY'];
+const requiredEnvVars = ['BOT_TOKEN', 'SUPABASE_URL', 'SUPABASE_SERVICE_KEY'];
 for (const envVar of requiredEnvVars) {
   if (!process.env[envVar]) {
     console.error(`❌ Missing environment variable: ${envVar}`);
@@ -242,6 +242,85 @@ bot.command('summary', async (ctx) => {
   }
 });
 
+// ─── /help ───────────────────────────────────────────────────────
+bot.help((ctx) => {
+  return ctx.reply(
+    `📖 *Panduan Money Tracker*\n\n` +
+    `💬 *Mencatat Pengeluaran:*\n` +
+    `Kirim saja pesan seperti:\n` +
+    `• _kopi 25k_\n` +
+    `• _nasi goreng 15000_\n` +
+    `• _ojek 12rebu_\n\n` +
+    `✨ *Smart Matching:*\n` +
+    `Bot akan mengingat kategori tiap kata kunci. Contoh: Jika kamu set "makan" sebagai *Pangan*, maka "makan malam" otomatis akan masuk kategori *Pangan*.\n\n` +
+    `🛠 *Perintah Lain:*\n` +
+    `• /summary — Ringkasan hari ini\n` +
+    `• /report — Download laporan Excel\n` +
+    `• /undo — Hapus transaksi terakhir\n` +
+    `• /reset — Hapus semua data bulan ini\n` +
+    `• /listcategory — Lihat daftar kategori\n` +
+    `• /addcategory — Tambah kategori baru\n` +
+    `• /setbudget — Atur target budget`,
+    { parse_mode: 'Markdown' }
+  );
+});
+
+// ─── /undo (Hapus transaksi terakhir) ──────────────────────────
+bot.command('undo', async (ctx) => {
+  try {
+    const telegramId = ctx.from.id;
+    const deleted = await db.deleteLastTransaction(telegramId);
+    
+    if (!deleted) {
+      return ctx.reply('📭 Tidak ada transaksi yang bisa dihapus.');
+    }
+
+    return ctx.reply(
+      `🗑 *Transaksi Dihapus!*\n\n` +
+      `📝 ${deleted.item}\n` +
+      `💰 ${formatRupiah(deleted.amount)}\n` +
+      `📂 ${deleted.category}`,
+      { parse_mode: 'Markdown' }
+    );
+  } catch (error) {
+    console.error('❌ /undo error:', error);
+    return ctx.reply('⚠️ Gagal menghapus transaksi.');
+  }
+});
+
+// ─── /reset (Hapus data bulan ini) ──────────────────────────────
+bot.command('reset', async (ctx) => {
+  return ctx.reply(
+    '❓ *Konfirmasi Reset*\n\n' +
+    'Apakah kamu yakin ingin menghapus SEMUA transaksi di bulan ini?\n' +
+    '_Tindakan ini tidak bisa dibatalkan._',
+    {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('✅ Ya, Hapus Semua', 'reset_confirm')],
+        [Markup.button.callback('❌ Batal', 'reset_cancel')]
+      ])
+    }
+  );
+});
+
+bot.action('reset_confirm', async (ctx) => {
+  try {
+    const telegramId = ctx.from.id;
+    await db.resetMonthlyTransactions(telegramId);
+    await ctx.editMessageText('✅ *Data bulan ini telah dibersihkan!*', { parse_mode: 'Markdown' });
+    return ctx.answerCbQuery('Data berhasil dihapus');
+  } catch (error) {
+    console.error('❌ Reset error:', error);
+    return ctx.answerCbQuery('⚠️ Gagal mereset data.');
+  }
+});
+
+bot.action('reset_cancel', async (ctx) => {
+  await ctx.editMessageText('❌ *Reset dibatalkan.*', { parse_mode: 'Markdown' });
+  return ctx.answerCbQuery('Reset dibatalkan');
+});
+
 // ─── Text handler: Expense tracking ─────────────────────────────
 bot.on('text', async (ctx) => {
   try {
@@ -277,70 +356,128 @@ bot.on('text', async (ctx) => {
       return ctx.reply('⚠️ Kamu belum punya kategori. Gunakan /start untuk setup awal.');
     }
 
-    // ─── Hybrid AI Categorization ──────────────────────────
-    let category;
+    // ─── Smart Categorization System ──────────────────────
+    let category = null;
 
-    // Step 1: Check cache
-    category = await db.getCachedCategory(telegramId, item);
+    // 1. Fetch all user cache for smart matching
+    const allCache = await db.listAllCache(telegramId);
+
+    // 2. Exact match first
+    const exactMatch = allCache.find(c => c.keyword === item.toLowerCase().trim());
+    if (exactMatch) {
+      category = exactMatch.category;
+    } else {
+      // 3. Smart "Word-level" matching
+      // If any word in the user's input matches a cached keyword, use that category.
+      const inputWords = item.toLowerCase().split(/\s+/);
+      const match = allCache.find(c => {
+        const cachedWords = c.keyword.split(/\s+/);
+        // Check if all words of cached keyword are in the current input
+        return cachedWords.every(word => inputWords.includes(word));
+      });
+      if (match) {
+        category = match.category;
+      }
+    }
 
     if (category) {
       console.log(`📦 Cache HIT: "${item}" → ${category}`);
-    } else {
-      // Step 2: AI Fallback
-      console.log(`🔍 Cache MISS: "${item}" → asking AI...`);
-      category = await ai.classifyCategory(item, categories);
-
-      if (!category) {
-        // AI failed (quota exceeded, network error, etc.)
-        return ctx.reply(
-          `⚠️ Maaf ${profile.first_name}, AI sedang tidak tersedia.\n\n` +
-          `Kamu bisa coba lagi nanti, atau kirim dengan format:\n` +
-          `_[item] [harga] [kategori]_\nContoh: _kopi 25k Jajan_`,
-          { parse_mode: 'Markdown' }
-        );
-      }
-
-      console.log(`🤖 AI result: "${item}" → ${category}`);
-
-      // Step 3: Learning — save to cache
-      await db.setCachedCategory(telegramId, item, category);
+      
+      // Save transaction directly
+      await db.addTransaction(telegramId, item, amount, category);
+      
+      // Send receipt
+      const monthlyTotal = await db.getMonthlyTotal(telegramId);
+      return ctx.reply(buildReceipt(profile, item, amount, category, monthlyTotal), { parse_mode: 'Markdown' });
     }
 
-    // ─── Save transaction ──────────────────────────────────
-    await db.addTransaction(telegramId, item, amount, category);
+    // Cache MISS: Ask user with buttons
+    console.log(`🔍 Cache MISS: "${item}" → asking user...`);
+    
+    // Telegram callback data limit: 64 bytes.
+    // Format: cat:[index]:[amount]:[item_truncated]
+    const buttons = categories.map((cat, idx) => {
+      const callbackData = `cat:${idx}:${amount}:${item.substring(0, 30)}`;
+      return Markup.button.callback(cat, callbackData);
+    });
 
-    // ─── Budget check ──────────────────────────────────────
-    const monthlyTotal = await db.getMonthlyTotal(telegramId);
-    const budgetLimit = Number(profile.budget_limit) || 0;
-
-    let reply =
-      `✅ Tercatat, *${profile.first_name}*!\n\n` +
-      `📝 *${item}*\n` +
-      `💰 ${formatRupiah(amount)}\n` +
-      `📂 Kategori: ${category}\n\n` +
-      `📊 Total bulan ini: ${formatRupiah(monthlyTotal)}`;
-
-    if (budgetLimit > 0) {
-      const remaining = budgetLimit - monthlyTotal;
-      if (remaining < 0) {
-        reply += `\n\n🚨 *OVER BUDGET!*\nAnggaran: ${formatRupiah(budgetLimit)}\nLebih: ${formatRupiah(Math.abs(remaining))}`;
-      } else {
-        const percentage = ((monthlyTotal / budgetLimit) * 100).toFixed(0);
-        reply += `\n\n💼 Sisa budget: ${formatRupiah(remaining)} (${percentage}% terpakai)`;
-
-        // Warning at 80%
-        if (percentage >= 80) {
-          reply += `\n⚠️ _Perhatian! Budget hampir habis._`;
-        }
+    return ctx.reply(
+      `📂 *Pilih Kategori untuk "${item}":*`,
+      {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard(buttons, { columns: 2 })
       }
-    }
-
-    return ctx.reply(reply, { parse_mode: 'Markdown' });
+    );
   } catch (error) {
     console.error('❌ Text handler error:', error);
-    return ctx.reply('⚠️ Terjadi kesalahan saat mencatat pengeluaran. Silakan coba lagi.');
+    return ctx.reply('⚠️ Terjadi kesalahan. Silakan coba lagi.');
   }
 });
+
+/**
+ * Handle category choice from buttons
+ */
+bot.action(/^cat:(\d+):(\d+):(.+)$/, async (ctx) => {
+  try {
+    const telegramId = ctx.from.id;
+    const catIdx = parseInt(ctx.match[1]);
+    const amount = parseInt(ctx.match[2]);
+    const item = ctx.match[3];
+
+    const profile = await db.getProfile(telegramId);
+    const categories = await db.listCategories(telegramId);
+    const category = categories[catIdx];
+
+    if (!category) return ctx.answerCbQuery('⚠️ Kategori tidak ditemukan.');
+
+    // Step 1: Save transaction
+    await db.addTransaction(telegramId, item, amount, category);
+
+    // Step 2: Learning — save to cache
+    await db.setCachedCategory(telegramId, item, category);
+    console.log(`🧠 Learned: "${item}" → ${category}`);
+
+    // Step 3: Update message with receipt
+    const monthlyTotal = await db.getMonthlyTotal(telegramId);
+    
+    await ctx.editMessageText(
+      buildReceipt(profile, item, amount, category, monthlyTotal),
+      { parse_mode: 'Markdown' }
+    );
+
+    return ctx.answerCbQuery('✅ Transaksi tersimpan!');
+  } catch (error) {
+    console.error('❌ Action handler error:', error);
+    return ctx.answerCbQuery('⚠️ Gagal menyimpan transaksi.');
+  }
+});
+
+/**
+ * Helper: Build receipt message
+ */
+function buildReceipt(profile, item, amount, category, monthlyTotal) {
+  const budgetLimit = Number(profile.budget_limit) || 0;
+  
+  let reply =
+    `✅ Tercatat, *${profile.first_name}*!\n\n` +
+    `📝 *${item}*\n` +
+    `💰 ${formatRupiah(amount)}\n` +
+    `📂 Kategori: ${category}\n\n` +
+    `📊 Total bulan ini: ${formatRupiah(monthlyTotal)}`;
+
+  if (budgetLimit > 0) {
+    const remaining = budgetLimit - monthlyTotal;
+    if (remaining < 0) {
+      reply += `\n\n🚨 *OVER BUDGET!*\nAnggaran: ${formatRupiah(budgetLimit)}\nLebih: ${formatRupiah(Math.abs(remaining))}`;
+    } else {
+      const percentage = ((monthlyTotal / budgetLimit) * 100).toFixed(0);
+      reply += `\n\n💼 Sisa budget: ${formatRupiah(remaining)} (${percentage}% terpakai)`;
+      if (percentage >= 80) reply += `\n⚠️ _Perhatian! Budget hampir habis._`;
+    }
+  }
+  
+  return reply;
+}
 
 // ─── Error handler ───────────────────────────────────────────────
 bot.catch((err, ctx) => {
