@@ -384,8 +384,8 @@ bot.command('reset', async (ctx) => {
 bot.action('reset_confirm', async (ctx) => {
   try {
     const telegramId = ctx.from.id;
-    await db.resetMonthlyTransactions(telegramId);
-    await ctx.editMessageText('✅ *Data bulan ini telah dibersihkan!*', { parse_mode: 'Markdown' });
+    await db.resetUserData(telegramId);
+    await ctx.editMessageText('✅ *Data transaksimu telah dihapus bersih!* Mari mulai lembaran baru. 🚩', { parse_mode: 'Markdown' });
     return ctx.answerCbQuery('Data berhasil dihapus');
   } catch (error) {
     console.error('❌ Reset error:', error);

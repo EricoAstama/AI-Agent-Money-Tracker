@@ -1,3 +1,12 @@
+---
+title: AI Agent Money Tracker
+emoji: 💰
+colorFrom: blue
+colorTo: green
+sdk: docker
+pinned: false
+---
+
 # 🤖 Money Tracker Bot
 
 SaaS Telegram Bot untuk mencatat pengeluaran harian dengan AI-powered categorization menggunakan **Gemini 1.5 Flash**.

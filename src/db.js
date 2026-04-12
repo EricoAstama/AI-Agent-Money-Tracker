@@ -123,14 +123,33 @@ async function deleteCategory(telegramId, categoryName) {
     .from('category_cache')
     .delete()
     .eq('user_id', telegramId)
-    .eq('category', categoryName);
+    .eq('category', categoryName.trim());
 
   if (cacheError) throw cacheError;
-
-  return true;
 }
 
-// ─── Category Cache Operations ────────────────────────────────────
+/**
+ * RESET: Delete all transactions and category cache for a user.
+ */
+async function resetUserData(telegramId) {
+  // 1. Delete transactions
+  const { error: txError } = await supabase
+    .from('transactions')
+    .delete()
+    .eq('user_id', telegramId);
+
+  if (txError) throw txError;
+
+  // 2. Clear category cache (so they can re-teach the AI)
+  const { error: cacheError } = await supabase
+    .from('category_cache')
+    .delete()
+    .eq('user_id', telegramId);
+
+  if (cacheError) throw cacheError;
+}
+
+// ─── Keyword Cache Operations ─────────────────────────────────────
 
 /**
  * Lookup cached category for a keyword + user.
@@ -327,6 +346,6 @@ module.exports = {
   getMonthlyTransactions,
   getDailyTransactions,
   deleteLastTransaction,
-  resetMonthlyTransactions,
+  resetUserData,
   DEFAULT_CATEGORIES,
 };
