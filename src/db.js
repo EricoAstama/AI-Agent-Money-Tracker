@@ -105,6 +105,31 @@ async function listCategories(telegramId) {
   return data.map((r) => r.name);
 }
 
+/**
+ * Delete a category and clean up its cache.
+ */
+async function deleteCategory(telegramId, categoryName) {
+  // 1. Delete category
+  const { error: catError } = await supabase
+    .from('user_categories')
+    .delete()
+    .eq('user_id', telegramId)
+    .eq('name', categoryName);
+
+  if (catError) throw catError;
+
+  // 2. Clear related cache keyword→category mapping
+  const { error: cacheError } = await supabase
+    .from('category_cache')
+    .delete()
+    .eq('user_id', telegramId)
+    .eq('category', categoryName);
+
+  if (cacheError) throw cacheError;
+
+  return true;
+}
+
 // ─── Category Cache Operations ────────────────────────────────────
 
 /**
@@ -134,6 +159,19 @@ async function setCachedCategory(telegramId, keyword, category) {
     },
     { onConflict: 'user_id,keyword' }
   );
+
+  if (error) throw error;
+}
+
+/**
+ * Delete a specific keyword mapping from cache (Unlearn).
+ */
+async function unlearnKeyword(telegramId, keyword) {
+  const { error } = await supabase
+    .from('category_cache')
+    .delete()
+    .eq('user_id', telegramId)
+    .eq('keyword', keyword.toLowerCase().trim());
 
   if (error) throw error;
 }
@@ -279,8 +317,10 @@ module.exports = {
   seedDefaultCategories,
   addCategory,
   listCategories,
+  deleteCategory,
   getCachedCategory,
   setCachedCategory,
+  unlearnKeyword,
   listAllCache,
   addTransaction,
   getMonthlyTotal,
