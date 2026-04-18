@@ -9,7 +9,7 @@ pinned: false
 
 # 🤖 Money Tracker Bot
 
-SaaS Telegram Bot untuk mencatat pengeluaran harian dengan AI-powered categorization menggunakan **Gemini 1.5 Flash**.
+SaaS Telegram Bot untuk mencatat pengeluaran harian dengan AI-powered categorization menggunakan **Groq (Llama 3)**.
 
 ## ✨ Fitur
 
@@ -26,7 +26,7 @@ SaaS Telegram Bot untuk mencatat pengeluaran harian dengan AI-powered categoriza
 |----------|-----------|
 | Bot Framework | Telegraf |
 | Database | Supabase (PostgreSQL) |
-| AI Engine | Google Gemini 1.5 Flash |
+| AI Engine | Groq (Llama 3) |
 | Report | ExcelJS |
 | Server | Express.js |
 
@@ -55,7 +55,7 @@ cp .env.example .env
 - **BOT_TOKEN**: Dari [@BotFather](https://t.me/BotFather)
 - **SUPABASE_URL**: URL project Supabase
 - **SUPABASE_SERVICE_KEY**: Service Role key dari Supabase
-- **GEMINI_API_KEY**: Dari [Google AI Studio](https://aistudio.google.com/)
+- **GROQ_API_KEY**: Dari [Groq Console](https://console.groq.com/)
 
 ### 4. Run
 
@@ -93,11 +93,11 @@ sewa 1.5jt           → Rp1.500.000
 
 ```
 Input → Parser → Cache Check → [HIT] → Gunakan cache
-                             → [MISS] → Gemini AI → Simpan ke cache
+                             → [MISS] → Groq AI → Simpan ke cache
 ```
 
 1. **Cache First** — Cek `category_cache` berdasarkan `user_id` + `keyword`
-2. **AI Fallback** — Panggil Gemini jika tidak ada di cache
+2. **AI Fallback** — Panggil Groq jika tidak ada di cache
 3. **Auto-Learn** — Simpan hasil AI ke cache untuk penggunaan selanjutnya
 
 ## 📁 Struktur File
@@ -106,7 +106,7 @@ Input → Parser → Cache Check → [HIT] → Gunakan cache
 ├── index.js          # Entry point + bot commands + Express server
 ├── src/
 │   ├── db.js         # Supabase database operations
-│   ├── ai.js         # Gemini AI categorization
+│   ├── ai.js         # Groq AI categorization
 │   ├── parser.js     # Expense text parser
 │   └── report.js     # Excel report generator
 ├── schema.sql        # Database schema (SQL)

@@ -1,5 +1,5 @@
-# Use the official Node.js 18 slim image
-FROM node:18-slim
+# Use the official Node.js 20 slim image
+FROM node:20-slim
 
 # Create and change to the app directory
 WORKDIR /usr/src/app

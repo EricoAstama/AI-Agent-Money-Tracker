@@ -18,7 +18,6 @@
   "license": "ISC",
   "description": "SaaS Telegram Bot Money Tracker with AI categorization",
   "dependencies": {
-    "@google/generative-ai": "^0.24.1",
     "@supabase/supabase-js": "^2.103.0",
     "dotenv": "^17.4.1",
     "exceljs": "^4.4.0",

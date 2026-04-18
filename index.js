@@ -155,7 +155,7 @@ bot.command('deletecategory', async (ctx) => {
     if (!profile) return ctx.reply('⚠️ Silakan /start terlebih dahulu.');
 
     const args = ctx.message.text.replace('/deletecategory', '').trim();
-    
+
     // If name is provided directly
     if (args) {
       await db.deleteCategory(telegramId, args);
@@ -343,7 +343,7 @@ bot.command('undo', async (ctx) => {
   try {
     const telegramId = ctx.from.id;
     const deleted = await db.deleteLastTransaction(telegramId);
-    
+
     if (!deleted) {
       return ctx.reply('📭 Tidak ada transaksi yang bisa dihapus.');
     }
@@ -459,10 +459,10 @@ bot.on('text', async (ctx) => {
 
     if (category) {
       console.log(`📦 Cache HIT: "${item}" → ${category}`);
-      
+
       // Save transaction directly
       await db.addTransaction(telegramId, item, amount, category);
-      
+
       // Send receipt
       const monthlyTotal = await db.getMonthlyTotal(telegramId);
       return ctx.reply(buildReceipt(profile, item, amount, category, monthlyTotal), { parse_mode: 'Markdown' });
@@ -481,15 +481,15 @@ bot.on('text', async (ctx) => {
 
       const monthlyTotal = await db.getMonthlyTotal(telegramId);
       return ctx.reply(
-        `🤖 _AI Categorization: ${category}_\n\n` + 
-        buildReceipt(profile, item, amount, category, monthlyTotal), 
+        `🤖 _AI Categorization: ${category}_\n\n` +
+        buildReceipt(profile, item, amount, category, monthlyTotal),
         { parse_mode: 'Markdown' }
       );
     }
 
     // Step 3 — Manual Fallback (Buttons)
     console.log(`⚠️ AI UNSURE: "${item}" → showing buttons...`);
-    
+
     // Telegram callback data limit: 64 bytes.
     // Format: cat:[index]:[amount]:[item_truncated]
     const buttons = categories.map((cat, idx) => {
@@ -535,7 +535,7 @@ bot.action(/^cat:(\d+):(\d+):(.+)$/, async (ctx) => {
 
     // Step 3: Update message with receipt
     const monthlyTotal = await db.getMonthlyTotal(telegramId);
-    
+
     await ctx.editMessageText(
       buildReceipt(profile, item, amount, category, monthlyTotal),
       { parse_mode: 'Markdown' }
@@ -553,7 +553,7 @@ bot.action(/^cat:(\d+):(\d+):(.+)$/, async (ctx) => {
  */
 function buildReceipt(profile, item, amount, category, monthlyTotal) {
   const budgetLimit = Number(profile.budget_limit) || 0;
-  
+
   let reply =
     `✅ Tercatat, *${profile.first_name}*!\n\n` +
     `📝 *${item}*\n` +
@@ -571,7 +571,7 @@ function buildReceipt(profile, item, amount, category, monthlyTotal) {
       if (percentage >= 80) reply += `\n⚠️ _Perhatian! Budget hampir habis._`;
     }
   }
-  
+
   return reply;
 }
 
